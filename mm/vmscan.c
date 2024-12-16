@@ -8477,6 +8477,10 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 {
 	pg_data_t *pgdat;
 	enum zone_type curr_idx;
+#if defined(CONFIG_CONT_PTE_HUGEPAGE) && CONFIG_POOL_ASYNC_RECLAIM
+	bool small_folio_wakeup = !(gfp_flags & POOL_USER_ALLOC_MASK);
+	static bool small_folio_missed = false;
+#endif
 
 	if (!managed_zone(zone))
 		return;
@@ -8486,6 +8490,13 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 
 	pgdat = zone->zone_pgdat;
 	curr_idx = READ_ONCE(pgdat->kswapd_highest_zoneidx);
+
+#if defined(CONFIG_CONT_PTE_HUGEPAGE) && CONFIG_POOL_ASYNC_RECLAIM
+	gfp_flags &= ~POOL_USER_ALLOC_MASK;
+	/* small folios wake up kswapd while kswapd is busy on reclaiming large ones */
+	if (small_folio_wakeup && test_bit(PGDAT_POOL_USER_ALLOC, &pgdat->flags))
+		small_folio_missed = true;
+#endif
 
 	if (curr_idx == MAX_NR_ZONES || curr_idx < highest_zoneidx)
 		WRITE_ONCE(pgdat->kswapd_highest_zoneidx, highest_zoneidx);
@@ -8497,10 +8508,15 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 		return;
 
 #if defined(CONFIG_CONT_PTE_HUGEPAGE) && CONFIG_POOL_ASYNC_RECLAIM
-	/* It starts with real sleep and ends with sleep */
-	if (gfp_flags & POOL_USER_ALLOC_MASK) {
+	/*
+	* if we are waken-up by small folios and we are ever waken-up
+	* by small folios when kswapd is reclaiming large folio
+	*/
+	if (small_folio_wakeup || small_folio_missed) {
+		clear_bit(PGDAT_POOL_USER_ALLOC, &pgdat->flags);
+		small_folio_missed = false;
+	} else {
 		set_bit(PGDAT_POOL_USER_ALLOC, &pgdat->flags);
-		gfp_flags &= ~POOL_USER_ALLOC_MASK;
 	}
 #endif
 
