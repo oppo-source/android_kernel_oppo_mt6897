@@ -931,7 +931,7 @@ inline void handle_chp_get_unmapped_area(struct vm_unmapped_area_info *info,
 
 static inline unsigned int get_pool_alloc_flags(gfp_t gfp_mask)
 {
-	unsigned int alloc_flags = POOL_ALLOC_WMARK_MIN;
+	unsigned int alloc_flags = 0;
 	struct task_struct *tsk = current;
 
 	/*
@@ -947,6 +947,10 @@ static inline unsigned int get_pool_alloc_flags(gfp_t gfp_mask)
 	if (gfp_mask & __GFP_MEMALLOC)
 		alloc_flags |= POOL_ALLOC_ALL;
 
+	if (alloc_flags)
+		alloc_flags |= POOL_ALLOC_WMARK_MIN;
+	else
+		alloc_flags |= POOL_ALLOC_WMARK_LOW;
 	return alloc_flags;
 }
 
@@ -3174,7 +3178,7 @@ static int __init cmdline_parse_prjname(char *p)
 		"24971", "24972",
 		"24271",
 		"24708",
-		"24608", "24705",
+		"24706", "24705",
 		NULL, /* FIXME: add projects which don't support art alignment */
 	};
 

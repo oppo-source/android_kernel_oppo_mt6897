@@ -3071,6 +3071,9 @@ static bool blk_mq_can_use_cached_rq(struct request *rq, struct blk_plug *plug,
 
 static void bio_set_ioprio(struct bio *bio)
 {
+#ifdef CONFIG_BLK_MQ_USE_LOCAL_THREAD
+struct request_queue *q = bdev_get_queue(bio->bi_bdev);
+#endif
 	/* Nobody set ioprio so far? Initialize it based on task's nice value */
 	if (IOPRIO_PRIO_CLASS(bio->bi_ioprio) == IOPRIO_CLASS_NONE)
 		bio->bi_ioprio = get_current_ioprio();
@@ -3080,7 +3083,7 @@ static void bio_set_ioprio(struct bio *bio)
 
 	if (IOPRIO_PRIO_CLASS(bio->bi_ioprio) == IOPRIO_CLASS_RT) {
 		rt_bio_cnt++;
-	} else if (test_task_ux(current)) {
+	} else if (q->nr_hw_queues > 1 && test_task_ux(current)) {
 		bio->bi_ioprio =  IOPRIO_PRIO_VALUE(IOPRIO_CLASS_RT, 4);
 		rt_bio_cnt++;
 		ux_bio_cnt++;
