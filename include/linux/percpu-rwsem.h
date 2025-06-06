@@ -73,12 +73,13 @@ static inline void percpu_down_read(struct percpu_rw_semaphore *sem)
 		this_cpu_inc(*sem->read_count);
 	else
 		__percpu_down_read(sem, false); /* Unconditional memory barrier */
+
+	_trace_android_vh_record_pcpu_rwsem_starttime(current, jiffies);
 	/*
 	 * The preempt_enable() prevents the compiler from
 	 * bleeding the critical section out.
 	 */
 	preempt_enable();
-	_trace_android_vh_record_pcpu_rwsem_starttime(current, jiffies);
 	android_vh_pcpu_rwsem_handler((u64)sem, current, jiffies);
 }
 
@@ -94,6 +95,9 @@ static inline bool percpu_down_read_trylock(struct percpu_rw_semaphore *sem)
 		this_cpu_inc(*sem->read_count);
 	else
 		ret = __percpu_down_read(sem, true); /* Unconditional memory barrier */
+
+	if (ret)
+		_trace_android_vh_record_pcpu_rwsem_starttime(current, jiffies);
 	preempt_enable();
 	/*
 	 * The barrier() from preempt_enable() prevents the compiler from
@@ -102,7 +106,6 @@ static inline bool percpu_down_read_trylock(struct percpu_rw_semaphore *sem)
 
 	if (ret) {
 		_trace_android_vh_record_pcpu_rwsem_time_early(jiffies, sem);
-		_trace_android_vh_record_pcpu_rwsem_starttime(current, jiffies);
 		android_vh_pcpu_rwsem_handler((u64)sem, current, jiffies);
 		rwsem_acquire_read(&sem->dep_map, 0, 1, _RET_IP_);
 	}
