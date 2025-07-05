@@ -1223,7 +1223,7 @@ config PER_VMA_LOCK
 
 config CONT_PTE_HUGEPAGE
 	bool "Cont Pte Hugepage support"
-	default y
+	default n
 	depends on ARM64 && TRANSPARENT_HUGEPAGE
 	help
 	  Try to THP-like Hugepages based on ARM64 cont-pte.

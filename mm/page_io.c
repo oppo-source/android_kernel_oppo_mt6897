@@ -478,11 +478,6 @@ int swap_readpage(struct page *page, bool synchronous,
 
 	if (data_race(sis->flags & SWP_FS_OPS)) {
 		swap_readpage_fs(page, plug);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-			count_vm_events(PSWPIN, chp_swapin_nr_pages(page));
-#else
-			count_vm_event(PSWPIN);
-#endif
 		goto out;
 	}
 

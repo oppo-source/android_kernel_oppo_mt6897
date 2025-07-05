@@ -2149,6 +2149,7 @@ free_it:
 		 * Is there need to periodically free_folio_list? It would
 		 * appear not as the counts should be low
 		 */
+		trace_android_vh_folio_trylock_clear(folio);
 		if (unlikely(folio_test_large(folio))) {
 #if defined(CONFIG_CONT_PTE_HUGEPAGE) && CONFIG_POOL_ASYNC_RECLAIM
 			if (sc->gfp_mask & POOL_USER_ALLOC_MASK &&
@@ -2159,8 +2160,6 @@ free_it:
 						current->pid,
 						nr_reclaimed);
 #endif
-		trace_android_vh_folio_trylock_clear(folio);
-		if (unlikely(folio_test_large(folio)))
 			destroy_large_folio(folio);
 		} else
 			list_add(&folio->lru, &free_folios);

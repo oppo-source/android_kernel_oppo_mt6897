@@ -36745,7 +36745,7 @@ array {
 array {
   id: 0x315405a8
   number_of_elements: 3
-  element_type_id: 0x8e47c273
+  element_type_id: 0xd2755d5f
 }
 array {
   id: 0x31d34410
@@ -258896,6 +258896,7 @@ struct_union {
     member_id: 0x95dac26f
   }
 }
+
 struct_union {
   id: 0x46826e23
   kind: STRUCT
@@ -385004,7 +385005,7 @@ elf_symbol {
   name: "lru_gen_caps"
   is_defined: true
   symbol_type: OBJECT
-  crc: 0xa2d7d23f
+  crc: 0xc393fa71
   type_id: 0x315405a8
   full_name: "lru_gen_caps"
 }

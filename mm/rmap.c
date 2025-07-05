@@ -1298,7 +1298,7 @@ void page_add_anon_rmap(struct page *page,
 #ifdef CONFIG_CONT_PTE_HUGEPAGE
 	mlock_vma_page(page, vma, compound);
 #else
-	mlock_vma_page(page, vma, false);
+	mlock_vma_page(page, vma, compound);
 #endif
 }
 
