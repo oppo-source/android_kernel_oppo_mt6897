@@ -65,6 +65,10 @@
 #include <linux/wait_api.h>
 #include <linux/workqueue_api.h>
 
+#if IS_ENABLED(CONFIG_OPLUS_SCHED_TUNE)
+#include <../kernel/oplus_cpu/sched/sched_tune/tune.h>
+#endif
+
 #ifdef CONFIG_PREEMPT_DYNAMIC
 # ifdef CONFIG_GENERIC_ENTRY
 #  include <linux/entry-common.h>
@@ -98,6 +102,7 @@
 #include <trace/hooks/sched.h>
 #include <trace/hooks/dtask.h>
 #include <trace/hooks/cgroup.h>
+#include "../locking/locking_main.h"
 
 /*
  * Export tracepoints that act as a bare tracehook (ie: have no trace event
@@ -734,13 +739,15 @@ static void update_rq_clock_task(struct rq *rq, s64 delta)
 #endif
 #ifdef CONFIG_PARAVIRT_TIME_ACCOUNTING
 	if (static_key_false((&paravirt_steal_rq_enabled))) {
-		steal = paravirt_steal_clock(cpu_of(rq));
+		u64 prev_steal;
+
+		steal = prev_steal = paravirt_steal_clock(cpu_of(rq));
 		steal -= rq->prev_steal_time_rq;
 
 		if (unlikely(steal > delta))
 			steal = delta;
 
-		rq->prev_steal_time_rq += steal;
+		rq->prev_steal_time_rq = prev_steal;
 		delta -= steal;
 	}
 #endif
@@ -1027,10 +1034,11 @@ void wake_up_q(struct wake_q_head *head)
 		struct task_struct *task;
 
 		task = container_of(node, struct task_struct, wake_q);
-		/* Task can safely be re-inserted now: */
-		node = node->next;
-		task->wake_q.next = NULL;
 		task->wake_q_count = head->count;
+		node = node->next;
+		/* pairs with cmpxchg_relaxed() in __wake_q_add() */
+		WRITE_ONCE(task->wake_q.next, NULL);
+		/* Task can safely be re-inserted now. */
 
 		/*
 		 * wake_up_process() executes a full barrier, which pairs with
@@ -1206,9 +1214,9 @@ static void nohz_csd_func(void *info)
 	WARN_ON(!(flags & NOHZ_KICK_MASK));
 
 	rq->idle_balance = idle_cpu(cpu);
-	if (rq->idle_balance && !need_resched()) {
+	if (rq->idle_balance) {
 		rq->nohz_idle_balance = flags;
-		raise_softirq_irqoff(SCHED_SOFTIRQ);
+		__raise_softirq_irqoff(SCHED_SOFTIRQ);
 	}
 }
 
@@ -6902,6 +6910,7 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 #endif
 
 	trace_android_rvh_schedule(sched_mode, prev, next, rq);
+	locking_record_switch_in_cs(prev);
 	if (likely(prev != next)) {
 		rq->nr_switches++;
 		/*
@@ -7771,6 +7780,14 @@ static void __setscheduler_params(struct task_struct *p,
 	else if (fair_policy(policy))
 		p->static_prio = NICE_TO_PRIO(attr->sched_nice);
 
+	/* rt-policy tasks do not have a timerslack */
+	if (task_is_realtime(p)) {
+		p->timer_slack_ns = 0;
+	} else if (p->timer_slack_ns == 0) {
+		/* when switching back to non-rt policy, restore timerslack */
+		p->timer_slack_ns = p->default_timer_slack_ns;
+	}
+
 	/*
 	 * __sched_setscheduler() ensures attr->sched_priority == 0 when
 	 * !rt_policy. Always setting this ensures that things like
@@ -8227,9 +8244,14 @@ do_sched_setscheduler(pid_t pid, int policy, struct sched_param __user *param)
 	rcu_read_lock();
 	retval = -ESRCH;
 	p = find_process_by_pid(pid);
-	if (p != NULL)
-		retval = sched_setscheduler(p, policy, &lparam);
+	if (likely(p))
+		get_task_struct(p);
 	rcu_read_unlock();
+
+	if (likely(p)) {
+		retval = sched_setscheduler(p, policy, &lparam);
+		put_task_struct(p);
+	}
 
 	return retval;
 }
@@ -8779,7 +8801,7 @@ SYSCALL_DEFINE0(sched_yield)
 #if !defined(CONFIG_PREEMPTION) || defined(CONFIG_PREEMPT_DYNAMIC)
 int __sched __cond_resched(void)
 {
-	if (should_resched(0)) {
+	if (should_resched(0) && !irqs_disabled()) {
 		preempt_schedule_common();
 		return 1;
 	}
@@ -10709,6 +10731,9 @@ void sched_move_task(struct task_struct *tsk)
 	struct rq_flags rf;
 	struct rq *rq;
 
+#if IS_ENABLED(CONFIG_OPLUS_SCHED_TUNE)
+	schedtune_attach(tsk);
+#endif
 	rq = task_rq_lock(tsk, &rf);
 	update_rq_clock(rq);
 
@@ -10749,6 +10774,9 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	struct task_group *tg;
 
 	if (!parent) {
+#if IS_ENABLED(CONFIG_OPLUS_SCHED_TUNE)
+		schedtune_root_alloc();
+#endif
 		/* This is early initialization for the top cgroup */
 		return &root_task_group.css;
 	}
@@ -10757,6 +10785,9 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	if (IS_ERR(tg))
 		return ERR_PTR(-ENOMEM);
 
+#if IS_ENABLED(CONFIG_OPLUS_SCHED_TUNE)
+	schedtune_alloc(tg, parent_css);
+#endif
 	return &tg->css;
 }
 
@@ -10797,6 +10828,9 @@ static void cpu_cgroup_css_free(struct cgroup_subsys_state *css)
 	 * Relies on the RCU grace period between css_released() and this.
 	 */
 	sched_unregister_group(tg);
+#if IS_ENABLED(CONFIG_OPLUS_SCHED_TUNE)
+	schedtune_free(css);
+#endif
 }
 
 #ifdef CONFIG_RT_GROUP_SCHED
@@ -11468,6 +11502,13 @@ static struct cftype cpu_legacy_files[] = {
 		.read_u64 = cpu_uclamp_ls_read_u64,
 		.write_u64 = cpu_uclamp_ls_write_u64,
 	},
+#if IS_ENABLED(CONFIG_OPLUS_SCHED_TUNE)
+	{
+		.name = "schedtune.boost",
+		.read_s64 = schedtune_boost_read,
+		.write_s64 = schedtune_boost_write,
+	},
+#endif
 #endif
 	{ }	/* Terminate */
 };
@@ -11671,6 +11712,14 @@ static struct cftype cpu_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.read_u64 = cpu_uclamp_ls_read_u64,
 		.write_u64 = cpu_uclamp_ls_write_u64,
+	},
+#endif
+#if IS_ENABLED(CONFIG_OPLUS_SCHED_TUNE)
+	{
+		.name = "schedtune.boost",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.read_s64 = schedtune_boost_read,
+		.write_s64 = schedtune_boost_write,
 	},
 #endif
 	{ }	/* terminate */
